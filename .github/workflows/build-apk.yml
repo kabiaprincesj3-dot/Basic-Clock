@@ -1,4 +1,4 @@
-name: Build Basic Clock Release APK
+name: Build Basic Clock APK
 
 on:
   workflow_dispatch:
@@ -11,11 +11,12 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout repository
+
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -26,8 +27,8 @@ jobs:
           set -e
 
           mkdir -p app/src/main/java/com/ibtechsolution/basicclock
-          mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/layout
 
           cat > settings.gradle <<'EOF'
           pluginManagement {
@@ -40,6 +41,7 @@ jobs:
 
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+
               repositories {
                   google()
                   mavenCentral()
@@ -58,7 +60,7 @@ jobs:
 
           cat > gradle.properties <<'EOF'
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-          android.useAndroidX=true
+          android.useAndroidX=false
           EOF
 
           cat > app/build.gradle <<'EOF'
@@ -73,31 +75,17 @@ jobs:
               defaultConfig {
                   applicationId 'com.ibtechsolution.basicclock'
                   minSdk 23
-                  targetSdk 28
+                  targetSdk 35
                   versionCode 2
                   versionName '1.0.1'
-              }
-
-              signingConfigs {
-                  release {
-                      storeFile file("${rootProject.projectDir}/release-key.jks")
-                      storePassword "basicclock123"
-                      keyAlias "basicclock"
-                      keyPassword "basicclock123"
-                  }
               }
 
               buildTypes {
                   release {
                       minifyEnabled false
                       shrinkResources false
-                      signingConfig signingConfigs.release
                   }
               }
-          }
-
-          dependencies {
-              implementation 'androidx.appcompat:appcompat:1.7.0'
           }
           EOF
 
@@ -134,12 +122,11 @@ jobs:
           <resources>
 
               <style name="AppTheme"
-                  parent="Theme.AppCompat.Light.NoActionBar">
+                  parent="@android:style/Theme.Material.Light.NoActionBar">
 
                   <item name="android:fontFamily">sans</item>
-                  <item name="android:colorAccent">#2196F3</item>
-                  <item name="android:navigationBarColor">#000000</item>
                   <item name="android:statusBarColor">#000000</item>
+                  <item name="android:navigationBarColor">#000000</item>
 
               </style>
 
@@ -170,7 +157,7 @@ jobs:
                   android:layout_width="wrap_content"
                   android:layout_height="wrap_content"
                   android:layout_marginTop="12dp"
-                  android:text="Monday, January 1, 2026"
+                  android:text="Loading..."
                   android:textSize="20sp" />
 
           </LinearLayout>
@@ -179,18 +166,17 @@ jobs:
           cat > app/src/main/java/com/ibtechsolution/basicclock/MainActivity.java <<'EOF'
           package com.ibtechsolution.basicclock;
 
+          import android.app.Activity;
           import android.os.Bundle;
           import android.os.Handler;
           import android.os.Looper;
           import android.widget.TextView;
 
-          import androidx.appcompat.app.AppCompatActivity;
-
           import java.text.SimpleDateFormat;
           import java.util.Date;
           import java.util.Locale;
 
-          public class MainActivity extends AppCompatActivity {
+          public class MainActivity extends Activity {
 
               private TextView timeText;
               private TextView dateText;
@@ -199,6 +185,7 @@ jobs:
                       new Handler(Looper.getMainLooper());
 
               private final Runnable clockRunnable = new Runnable() {
+
                   @Override
                   public void run() {
 
@@ -225,6 +212,7 @@ jobs:
 
               @Override
               protected void onCreate(Bundle savedInstanceState) {
+
                   super.onCreate(savedInstanceState);
 
                   setContentView(R.layout.activity_main);
@@ -237,7 +225,9 @@ jobs:
 
               @Override
               protected void onDestroy() {
+
                   handler.removeCallbacks(clockRunnable);
+
                   super.onDestroy();
               }
           }
@@ -250,6 +240,7 @@ jobs:
 
           export ANDROID_HOME="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
+
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/35.0.0:$PATH"
 
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
@@ -266,59 +257,61 @@ jobs:
             "platforms;android-35" \
             "build-tools;35.0.0"
 
-      - name: Create release signing key
-        shell: bash
-        run: |
-          set -e
-
-          keytool -genkeypair \
-            -v \
-            -keystore release-key.jks \
-            -alias basicclock \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -storepass basicclock123 \
-            -keypass basicclock123 \
-            -dname "CN=IB TECH SOLUTION, OU=Basic Clock, O=IB TECH SOLUTION, L=Freetown, ST=Western Area, C=SL"
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
 
-      - name: Build signed release APK
+      - name: Build unsigned release APK
         shell: bash
         run: |
           set -e
 
           gradle assembleRelease --no-daemon
 
-      - name: Verify APK signature
+          test -f app/build/outputs/apk/release/app-release-unsigned.apk
+
+          ls -lh app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Create signing key
         shell: bash
         run: |
           set -e
 
-          APK="app/build/outputs/apk/release/app-release.apk"
+          keytool -genkeypair \
+            -keystore basic-clock-release.jks \
+            -alias basicclock \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass basicclock123 \
+            -keypass basicclock123 \
+            -dname "CN=IB TECH SOLUTION, O=IB TECH SOLUTION, L=Freetown, C=SL"
 
-          if [ ! -f "$APK" ]; then
-            echo "Release APK was not created."
-            exit 1
-          fi
-
-          apksigner verify --verbose "$APK"
-
-          echo "APK successfully built and signed:"
-          ls -lh "$APK"
-
-      - name: Rename APK
+      - name: Sign APK
         shell: bash
         run: |
-          cp \
-            app/build/outputs/apk/release/app-release.apk \
-            Basic-Clock-release.apk
+          set -e
 
-      - name: Upload signed APK
+          UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
+          ALIGNED="Basic-Clock-aligned.apk"
+          FINAL="Basic-Clock-release.apk"
+
+          zipalign -f 4 "$UNSIGNED" "$ALIGNED"
+
+          apksigner sign \
+            --ks basic-clock-release.jks \
+            --ks-key-alias basicclock \
+            --ks-pass pass:basicclock123 \
+            --key-pass pass:basicclock123 \
+            --out "$FINAL" \
+            "$ALIGNED"
+
+          apksigner verify --verbose "$FINAL"
+
+          ls -lh "$FINAL"
+
+      - name: Upload final APK
         uses: actions/upload-artifact@v4
         with:
           name: Basic-Clock-Release
