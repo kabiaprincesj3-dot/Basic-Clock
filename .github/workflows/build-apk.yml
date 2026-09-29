@@ -8,9 +8,69 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
+
+      # --------------------------------------------------
+      # 1. Checkout repository
+      # --------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------
+      # 2. Set up Java
+      # --------------------------------------------------
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # --------------------------------------------------
+      # 3. Configure Android SDK
+      # --------------------------------------------------
+      - name: Configure Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$ANDROID_SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+
+          if [ -f "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          fi
+
+      # --------------------------------------------------
+      # 4. Install required Android SDK packages
+      # --------------------------------------------------
+      - name: Install Android SDK
+        run: |
+          SDKMANAGER=""
+
+          if command -v sdkmanager >/dev/null 2>&1; then
+            SDKMANAGER="$(command -v sdkmanager)"
+          elif [ -f "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          else
+            SDKMANAGER="$(find "$ANDROID_SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1)"
+          fi
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager was not found."
+            exit 1
+          fi
+
+          echo "Using sdkmanager: $SDKMANAGER"
+
+          yes | "$SDKMANAGER" --licenses || true
+
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      # --------------------------------------------------
+      # 5. Create Android project
+      # --------------------------------------------------
       - name: Create Android project
         run: |
           mkdir -p app/src/main/java/com/ibtechsolution/basicclock
@@ -34,8 +94,8 @@ jobs:
               }
           }
 
-          rootProject.name = "BasicClockApp"
-          include(":app")
+          rootProject.name = 'BasicClockApp'
+          include ':app'
           EOF
 
           cat > build.gradle <<'EOF'
@@ -78,14 +138,13 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
               <application
-                  android:theme="@style/AppTheme"
-                  android:label="Basic Clock"
                   android:allowBackup="true"
-                  android:supportsRtl="true">
+                  android:label="Basic Clock"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme">
 
                   <activity
                       android:name=".MainActivity"
-                      android:screenOrientation="portrait"
                       android:exported="true">
 
                       <intent-filter>
@@ -103,15 +162,23 @@ jobs:
           cat > app/src/main/res/values/styles.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
-              <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
+
+              <style name="AppTheme"
+                  parent="Theme.MaterialComponents.DayNight.NoActionBar">
+
                   <item name="android:fontFamily">sans</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:statusBarColor">#000000</item>
                   <item name="android:navigationBarColor">#000000</item>
+
               </style>
+
           </resources>
           EOF
 
           cat > app/src/main/res/layout/activity_main.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
+
           <LinearLayout
               xmlns:android="http://schemas.android.com/apk/res/android"
               android:layout_width="match_parent"
@@ -132,9 +199,9 @@ jobs:
                   android:id="@+id/dateText"
                   android:layout_width="wrap_content"
                   android:layout_height="wrap_content"
-                  android:layout_marginTop="16dp"
+                  android:layout_marginTop="12dp"
                   android:text="Monday, January 1, 2026"
-                  android:textSize="18sp" />
+                  android:textSize="20sp" />
 
           </LinearLayout>
           EOF
@@ -146,7 +213,9 @@ jobs:
           import android.os.Handler;
           import android.os.Looper;
           import android.widget.TextView;
+
           import androidx.appcompat.app.AppCompatActivity;
+
           import java.text.SimpleDateFormat;
           import java.util.Date;
           import java.util.Locale;
@@ -160,16 +229,23 @@ jobs:
                       new Handler(Looper.getMainLooper());
 
               private final Runnable clockRunnable = new Runnable() {
+
                   @Override
                   public void run() {
+
                       Date now = new Date();
 
                       SimpleDateFormat timeFormat =
-                              new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
+                              new SimpleDateFormat(
+                                      "HH:mm:ss",
+                                      Locale.getDefault()
+                              );
 
                       SimpleDateFormat dateFormat =
-                              new SimpleDateFormat("EEEE, MMMM d, yyyy",
-                                      Locale.getDefault());
+                              new SimpleDateFormat(
+                                      "EEEE, MMMM d, yyyy",
+                                      Locale.getDefault()
+                              );
 
                       timeText.setText(timeFormat.format(now));
                       dateText.setText(dateFormat.format(now));
@@ -181,6 +257,7 @@ jobs:
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+
                   setContentView(R.layout.activity_main);
 
                   timeText = findViewById(R.id.timeText);
@@ -197,29 +274,32 @@ jobs:
           }
           EOF
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK
-        run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
-
+      # --------------------------------------------------
+      # 6. Generate Gradle wrapper
+      # --------------------------------------------------
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.11.1'
+          gradle-version: '8.9'
 
+      - name: Generate Gradle wrapper
+        run: |
+          gradle wrapper --gradle-version 8.9
+
+      # --------------------------------------------------
+      # 7. Build APK
+      # --------------------------------------------------
       - name: Build APK
-        run: gradle assembleDebug
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --stacktrace
 
+      # --------------------------------------------------
+      # 8. Upload APK
+      # --------------------------------------------------
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Basic-Clock-APK
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
